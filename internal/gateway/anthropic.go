@@ -383,6 +383,109 @@ func withThinkingOnToolTurns(body []byte) []byte {
 	return nb
 }
 
+// withSystemAsUser gives a Messages body's mid-conversation system
+// messages the user role: Claude Code inserts them (2.1.302, context
+// management), Anthropic's own API takes them, and OpenRouter's Messages
+// endpoint loses the conversation's thread over one — it answers
+// "Mid-conversation reasoning effort (configuration_update) is not
+// supported" for a request that changed nothing (checked 2026-10-18).
+func withSystemAsUser(body []byte) []byte {
+	if !bytes.Contains(body, []byte(`"system"`)) {
+		return body
+	}
+	var q map[string]json.RawMessage
+	var msgs []json.RawMessage
+	if decodeJSON(body, &q) != nil || decodeJSON(q["messages"], &msgs) != nil {
+		return body
+	}
+	changed := false
+	for i, raw := range msgs {
+		var m map[string]json.RawMessage
+		var role string
+		if decodeJSON(raw, &m) != nil || decodeJSON(m["role"], &role) != nil {
+			continue
+		}
+		if role != "system" {
+			continue
+		}
+		// its per-message output_config goes along: OpenRouter takes
+		// output_config only on system-role messages, which this stops
+		// being, so its effort is dropped (the reasoning is pinned) and a
+		// format, if one came, is asked at the body's top level instead
+		if oc, ok := m["output_config"]; ok {
+			var o map[string]any
+			if decodeJSON(oc, &o) == nil {
+				if f, has := o["format"]; has {
+					var top map[string]any
+					if tq, has := q["output_config"]; has {
+						decodeJSON(tq, &top)
+					}
+					if top == nil {
+						top = map[string]any{}
+					}
+					top["format"] = f
+					if nb, err := json.Marshal(top); err == nil {
+						q["output_config"] = nb
+					}
+				}
+			}
+			delete(m, "output_config")
+		}
+		m["role"], _ = json.Marshal("user")
+		if nb, err := json.Marshal(m); err == nil {
+			msgs[i], changed = nb, true
+		}
+	}
+	if !changed {
+		return body
+	}
+	q["messages"], _ = json.Marshal(msgs)
+	nb, err := json.Marshal(q)
+	if err != nil {
+		return body
+	}
+	return nb
+}
+
+// pinnedReasoningBudget is the one thinking budget every request to a
+// conversation-stateful relay carries, whatever effort the client or the
+// model's slot asked: high's, reasoning left on as the model has it by
+// default, the same on every call.
+var pinnedReasoningBudget = budgetOf("high")
+
+// withPinnedReasoning rewrites a Messages body so its reasoning
+// configuration is the same on every request: OpenRouter's Messages
+// endpoint tracks a conversation's reasoning effort and turns a request
+// that changes it away, "Mid-conversation reasoning effort
+// (configuration_update) is not supported" (checked 2026-10-18), while
+// Claude Code asks a different effort of every operation and magpie's
+// model slots may carry different ones. It drops output_config.effort
+// (its format, if any, stays) and asks thinking at one fixed budget.
+func withPinnedReasoning(body []byte) []byte {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var m map[string]any
+	if dec.Decode(&m) != nil {
+		return body
+	}
+	if oc, ok := m["output_config"].(map[string]any); ok {
+		if _, has := oc["effort"]; has {
+			delete(oc, "effort")
+			if len(oc) == 0 {
+				delete(m, "output_config")
+			}
+		}
+	}
+	m["thinking"] = map[string]any{"type": "enabled", "budget_tokens": pinnedReasoningBudget}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false) // <, > and & as the agent wrote them
+	if enc.Encode(m) != nil {
+		return body
+	}
+	return bytes.TrimSuffix(out.Bytes(), []byte("\n"))
+}
+
 // anthropicModel is one of Anthropic's own models, which think only when asked,
 // so a request for one is left as the agent sent it.
 var anthropicModel = regexp.MustCompile(`(?i)(?:^|[/.:-])claude-`)

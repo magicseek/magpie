@@ -4165,6 +4165,14 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	if asked != "" && effort != asked {
 		body = withBodyEffort(proto, body, effort)
 	}
+	if proto == provider.Anthropic && strings.Contains(p.Host(), "openrouter") &&
+		(anthropicReplaysThinking(p.Host(), model) || anthropicReplaysThinking(p.Host(), upstream)) {
+		// OpenRouter's Messages endpoint refuses a mid-conversation
+		// reasoning effort change, whatever slot or operation asked it:
+		// one constant reasoning shape (withPinnedReasoning).
+		body = withSystemAsUser(body)
+		body = withPinnedReasoning(body)
+	}
 	path := upstreamPath(p, proto, upstream)
 	if proto == provider.Gemini && p.IsVertex() && geminiWhole {
 		path = provider.VertexWholePath(upstream) // answered as one JSON body
@@ -5888,6 +5896,13 @@ func build(proto provider.Protocol, r *Request, model, host string, rejectTemp b
 		// Claude's fast mode, on the models that have it (its beta header
 		// goes with it: forwardOnce)
 		out = withFields(out, map[string]any{"speed": "fast"})
+	}
+	if replay && strings.Contains(host, "openrouter") {
+		// OpenRouter's Messages endpoint refuses a mid-conversation
+		// reasoning effort change, whatever the client asked: one constant
+		// reasoning shape (withPinnedReasoning).
+		out = withSystemAsUser(out)
+		out = withPinnedReasoning(out)
 	}
 	return out, nil
 }
