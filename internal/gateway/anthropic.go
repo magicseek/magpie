@@ -307,7 +307,12 @@ func withThinkingOnToolTurns(body []byte) []byte {
 	if decodeJSON(body, &q) != nil || decodeJSON(q["messages"], &msgs) != nil {
 		return body
 	}
-	space, _ := json.Marshal(aBlock{Type: "thinking", Thinking: noReasoning})
+	// The filler carries "signature": "" explicitly: a thinking block
+	// without the key is refused by hosts that validate the Messages
+	// schema strictly (OpenRouter's /v1/messages, checked 2026-10-18,
+	// "Invalid Anthropic Messages API request"), while DeepSeek's own
+	// endpoint and OpenRouter both take an empty one.
+	space := json.RawMessage(`{"type":"thinking","thinking":"` + noReasoning + `","signature":""}`)
 	changed := false
 	// afterTool: the message before is the user's tool results alone
 	afterTool := false

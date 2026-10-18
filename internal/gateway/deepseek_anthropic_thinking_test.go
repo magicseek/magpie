@@ -107,10 +107,10 @@ func TestDeepSeekAnthropicToolTurnsGetThinking(t *testing.T) {
 		}
 		ms := sentAnthropicMessages(t, f.got)
 		sameJSON(t, ms[0], `{"role":"user","content":"fix the login bug"}`)
-		sameJSON(t, ms[1], `{"role":"assistant","content":[{"type":"thinking","thinking":" "},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}`)
+		sameJSON(t, ms[1], `{"role":"assistant","content":[{"type":"thinking","thinking":" ","signature":""},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}`)
 		sameJSON(t, ms[3], `{"role":"assistant","content":[{"type":"thinking","thinking":"Read main.go.","signature":"EqQBCkgIBxABGAIiQL"},{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"cat main.go"}}]}`)
-		sameJSON(t, ms[5], `{"role":"assistant","content":[{"type":"thinking","thinking":" "},{"type":"text","text":"Checking the test."},{"type":"tool_use","id":"toolu_3","name":"Bash","input":{"command":"go test"}}]}`)
-		sameJSON(t, ms[7], `{"role":"assistant","content":[{"type":"thinking","thinking":" "},{"type":"thinking","thinking":"Fine.","signature":"EqQBCkgIBxAB"},{"type":"text","text":"It passes."}]}`)
+		sameJSON(t, ms[5], `{"role":"assistant","content":[{"type":"thinking","thinking":" ","signature":""},{"type":"text","text":"Checking the test."},{"type":"tool_use","id":"toolu_3","name":"Bash","input":{"command":"go test"}}]}`)
+		sameJSON(t, ms[7], `{"role":"assistant","content":[{"type":"thinking","thinking":" ","signature":""},{"type":"thinking","thinking":"Fine.","signature":"EqQBCkgIBxAB"},{"type":"text","text":"It passes."}]}`)
 	}
 
 	// another vendor's model, and a Claude model, on the same upstream are
@@ -140,7 +140,7 @@ func TestDeepSeekAnthropicNoThinkingField(t *testing.T) {
 	if code, b := postTo(t, New(), "/v1/messages", body); code != 200 {
 		t.Fatalf("%d: %s", code, b)
 	}
-	if ms := sentAnthropicMessages(t, f.got); !strings.HasPrefix(string(ms[1]), `{"content":[{"type":"thinking","thinking":" "}`) {
+	if ms := sentAnthropicMessages(t, f.got); !strings.HasPrefix(string(ms[1]), `{"content":[{"type":"thinking","thinking":" ","signature":""}`) {
 		t.Errorf("first tool turn sent as %s", ms[1])
 	}
 }
